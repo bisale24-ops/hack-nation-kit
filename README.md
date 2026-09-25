@@ -16,14 +16,17 @@ cd ../mytool && ./check.sh                # pytest on 3.9 and 3.13, the tool on 
 
 ## The template
 
-`new.sh` stamps out `src/<name>/`, 62 tests and a two-interpreter CI matrix. Four modules:
+`new.sh` stamps out `src/<name>/`, 126 tests and a two-interpreter CI matrix. Seven modules:
 
 | | |
 |---|---|
 | `llm.py` | One model call over the standard library — no `pip install` before the first request works. Anthropic or any OpenAI-shaped endpoint, keys from `~/.config/<provider>.key`, automatic retries on 429 and 5xx, and every answer cached on disk. `LLM_MODE=replay` makes a demo repeatable and free. |
 | `findings.py` | What a check found, kept apart from how it is printed. A section carries what it *confirmed* and why it was *skipped*, because a report that lists only problems cannot be told apart from one that failed to run. |
 | `report.py` | The same sections as a terminal report, a JSON document, or one HTML page — no stylesheet, no script, no image, no request. A judge opens it offline. |
-| `cli.py` | A registry of checks where one that raises becomes a skipped section with its reason, rather than killing the run. |
+| `agent.py` | A model that uses tools, and a transcript of what it did. The loop is twenty lines; the rest handles a model naming a tool that does not exist, emitting arguments that are not JSON, calling the same tool forever, or hitting a tool that raises. Each is handed back as a result — none ends the run in a traceback. |
+| `evals.py` | Cases in, a table out, a number at the bottom. "31 of 34, the three failures listed below" is a sentence a judge can act on; "it works well" is not. Failures and crashes are told apart, and a case that raises is a failed case rather than a dead run. |
+| `serve.py` | The same report over HTTP, standard library only, bound to localhost, rebuilt per request — for a challenge that wants a URL rather than a terminal. |
+| `cli.py` | A registry of checks where one that raises becomes a skipped section with its reason, rather than killing the run. `--serve` puts the report on a port. |
 
 ## The video pipeline
 
@@ -43,7 +46,10 @@ before they were features:
   reports the length before anything is rendered.
 
 `video/setup.sh` builds `~/.venvs/video` once and proves the whole chain by rendering a real
-twenty-four-second mp4.
+twenty-four-second mp4. `video/script.outline.py` is the eight-scene structure with the words
+already budgeted — problem, question, two real runs, the mechanism, the numbers, the limits, the
+close — and it runs as it stands, so pacing can be checked before a single frame exists. Measured
+pace is about 2.7 words per second, so three minutes is roughly 480 words.
 
 ## The gates
 

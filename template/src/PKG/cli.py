@@ -9,7 +9,7 @@ import pathlib
 import sys
 import traceback
 
-from . import report
+from . import report, serve
 from .findings import Section
 
 
@@ -51,6 +51,10 @@ def build_parser():
     parser.add_argument("--quiet", action="store_true", help="exit code only")
     parser.add_argument("--no-colour", action="store_true")
     parser.add_argument("--debug", action="store_true", help="show tracebacks from failed checks")
+    parser.add_argument("--serve", nargs="?", const=8000, type=int, metavar="PORT",
+                        help="serve the report at / and /report.json instead of printing it")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="who may reach --serve; 0.0.0.0 exposes it to the network")
     return parser
 
 
@@ -60,7 +64,15 @@ def main(argv=None):
     if not root.is_dir():
         sys.stderr.write("not a directory: %s\n" % args.repo)
         return 2
-    sections = collect(root, args.only or sorted(CHECKS), debug=args.debug)
+    names = args.only or sorted(CHECKS)
+    if args.serve is not None:
+        # rebuilt per request, so reloading the page re-reads the repository
+        return serve.serve(serve.routes_for(
+            lambda: report.page(collect(root, names, debug=args.debug),
+                                title=__package__, subtitle=str(root)),
+            lambda: report.as_json(collect(root, names, debug=args.debug), {"root": str(root)})),
+            host=args.host, port=args.serve)
+    sections = collect(root, names, debug=args.debug)
     if args.html:
         args.html.write_text(report.page(sections, title=__package__, subtitle=str(root)),
                              encoding="utf-8")

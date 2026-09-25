@@ -220,14 +220,23 @@ def main(argv=None):
     build.mkdir(parents=True, exist_ok=True)
 
     if args.length_only:
-        total = 0.0
+        total, words = 0.0, 0
         for (frame, line), audio in zip(script.SCENES, narrate(script, build)):
             length = duration(audio) + script.TAIL
             total += length
-            print("%6.1fs  %-18s %s…" % (length, frame, line[:56]))
-        print("%6.1fs  TOTAL (%d scenes)" % (total, len(script.SCENES)))
-        if args.max_seconds and total > args.max_seconds:
-            raise SystemExit("over the limit by %.1fs" % (total - args.max_seconds))
+            words += len(line.split())
+            flag = "  <- long" if length > 25 else ""
+            print("%6.1fs  %3d words  %-18s %s…%s"
+                  % (length, len(line.split()), frame, line[:44], flag))
+        pace = (words / total) if total else 0
+        print("%6.1fs  %3d words  TOTAL (%d scenes, %.1f words per second)"
+              % (total, words, len(script.SCENES), pace))
+        if args.max_seconds:
+            over = total - args.max_seconds
+            if over > 0:
+                print("cut about %d words to fit" % int(over * pace + 0.5))
+                raise SystemExit("over the limit by %.1fs" % over)
+            print("%.1fs of room left, about %d words" % (-over, int(-over * pace)))
         return 0
 
     out = pathlib.Path(args.out) if args.out else script.HERE / "demo.mp4"

@@ -69,3 +69,41 @@ def test_every_output_form_is_quiet_on_stderr(tmp_path, form):
 def test_output_is_not_coloured_when_it_is_not_a_terminal(tmp_path):
     (tmp_path / "README.md").write_text("# x")
     assert "\033" not in run("--repo", str(tmp_path)).stdout
+
+
+def test_the_served_report_answers_a_real_request(tmp_path):
+    """The CLI wiring, not just serve.py: a real process, a real port, a real fetch."""
+    import json as _json
+    import urllib.request
+
+    (tmp_path / "README.md").write_text("# served\n")
+    process = subprocess.Popen(
+        [sys.executable, "-m", "PKG", "--repo", str(tmp_path), "--serve", "0"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env=dict(os.environ, PYTHONPATH=SRC, PYTHONUNBUFFERED="1"))
+    try:
+        line = process.stdout.readline().strip()
+        assert line.startswith("http://127.0.0.1:"), line
+        base = line.split()[0].rstrip("/")
+        with urllib.request.urlopen(base + "/", timeout=10) as response:
+            page = response.read().decode()
+        with urllib.request.urlopen(base + "/report.json", timeout=10) as response:
+            payload = _json.loads(response.read().decode())
+        assert page.startswith("<!doctype html>") and "Example" in page
+        assert payload["root"] == str(tmp_path.resolve())
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
+
+
+def test_serving_binds_to_localhost_unless_told_otherwise(tmp_path):
+    (tmp_path / "README.md").write_text("# x\n")
+    process = subprocess.Popen(
+        [sys.executable, "-m", "PKG", "--repo", str(tmp_path), "--serve", "0"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env=dict(os.environ, PYTHONPATH=SRC, PYTHONUNBUFFERED="1"))
+    try:
+        assert "127.0.0.1" in process.stdout.readline()
+    finally:
+        process.terminate()
+        process.wait(timeout=10)

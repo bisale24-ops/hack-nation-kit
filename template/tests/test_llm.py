@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from PKG.llm import LLMError, Model, read_key
+from PKG.llm import LLMError, Model, ToolCall, read_key
 
 
 @pytest.fixture(autouse=True)
@@ -258,3 +258,124 @@ def test_the_environment_can_redirect_the_model_and_the_gateway(tmp_path, monkey
     model(tmp_path, fake, provider="openai").ask("", "x")
     assert fake.seen[0]["payload"]["model"] == "some-sponsor-model"
     assert fake.seen[0]["url"].startswith("https://sponsor.example/")
+
+
+# ---- tools: one message format, two provider shapes ----------------------------------------
+
+WEATHER = {"name": "weather", "description": "Look it up",
+           "schema": {"type": "object", "properties": {"city": {"type": "string"}}}}
+
+
+def test_anthropic_is_sent_tools_as_input_schema(tmp_path):
+    fake = Fake(anthropic_answer("hi"))
+    model(tmp_path, fake).chat("", [{"role": "user", "content": "x"}], tools=[WEATHER])
+    assert fake.seen[0]["payload"]["tools"] == [
+        {"name": "weather", "description": "Look it up", "input_schema": WEATHER["schema"]}]
+
+
+def test_openai_is_sent_tools_as_functions(tmp_path):
+    fake = Fake(openai_answer("hi"))
+    model(tmp_path, fake, provider="openai").chat("", [{"role": "user", "content": "x"}],
+                                                  tools=[WEATHER])
+    assert fake.seen[0]["payload"]["tools"] == [
+        {"type": "function", "function": {"name": "weather", "description": "Look it up",
+                                          "parameters": WEATHER["schema"]}}]
+
+
+def test_anthropic_tool_use_becomes_a_tool_call(tmp_path):
+    fake = Fake((200, {"content": [{"type": "text", "text": "let me look"},
+                                   {"type": "tool_use", "id": "t1", "name": "weather",
+                                    "input": {"city": "Osh"}}],
+                       "stop_reason": "tool_use"}))
+    reply = model(tmp_path, fake).chat("", [{"role": "user", "content": "x"}])
+    assert reply.text == "let me look" and reply.wants_tools
+    assert (reply.tool_calls[0].id, reply.tool_calls[0].name,
+            reply.tool_calls[0].arguments) == ("t1", "weather", {"city": "Osh"})
+    assert reply.stop_reason == "tool_use"
+
+
+def test_openai_tool_calls_have_their_arguments_parsed(tmp_path):
+    fake = Fake((200, {"choices": [{"message": {"content": None, "tool_calls": [
+        {"id": "t1", "function": {"name": "weather", "arguments": '{"city": "Osh"}'}}]},
+        "finish_reason": "tool_calls"}]}))
+    reply = model(tmp_path, fake, provider="openai").chat("", [{"role": "user", "content": "x"}])
+    assert reply.tool_calls[0].arguments == {"city": "Osh"}
+    assert reply.tool_calls[0].malformed == ""
+
+
+def test_arguments_that_are_not_json_are_kept_verbatim_rather_than_crashing(tmp_path):
+    fake = Fake((200, {"choices": [{"message": {"tool_calls": [
+        {"id": "t1", "function": {"name": "weather", "arguments": '{"city": "Os'}}]}}]}))
+    call = model(tmp_path, fake, provider="openai").chat(
+        "", [{"role": "user", "content": "x"}]).tool_calls[0]
+    assert call.arguments == {} and call.malformed == '{"city": "Os'
+
+
+def test_arguments_that_are_json_but_not_an_object_are_also_malformed(tmp_path):
+    fake = Fake((200, {"choices": [{"message": {"tool_calls": [
+        {"id": "t1", "function": {"name": "weather", "arguments": "[1, 2]"}}]}}]}))
+    call = model(tmp_path, fake, provider="openai").chat(
+        "", [{"role": "user", "content": "x"}]).tool_calls[0]
+    assert call.arguments == {} and call.malformed == "[1, 2]"
+
+
+def test_empty_arguments_are_an_empty_dict_not_an_error(tmp_path):
+    fake = Fake((200, {"choices": [{"message": {"tool_calls": [
+        {"id": "t1", "function": {"name": "weather", "arguments": ""}}]}}]}))
+    call = model(tmp_path, fake, provider="openai").chat(
+        "", [{"role": "user", "content": "x"}]).tool_calls[0]
+    assert call.arguments == {} and call.malformed == ""
+
+
+def conversation():
+    return [{"role": "user", "content": "weather in two cities"},
+            {"role": "assistant", "content": "looking",
+             "tool_calls": [ToolCall("a", "weather", {"city": "Osh"}),
+                            ToolCall("b", "weather", {"city": "Naryn"})]},
+            {"role": "tool", "tool_call_id": "a", "name": "weather", "content": "17C"},
+            {"role": "tool", "tool_call_id": "b", "name": "weather", "content": "9C"}]
+
+
+def test_anthropic_puts_the_results_of_one_turn_in_a_single_user_message(tmp_path):
+    fake = Fake(anthropic_answer("done"))
+    model(tmp_path, fake).chat("", conversation())
+    sent = fake.seen[0]["payload"]["messages"]
+    assert [m["role"] for m in sent] == ["user", "assistant", "user"]
+    assert [block["type"] for block in sent[1]["content"]] == ["text", "tool_use", "tool_use"]
+    assert [block["tool_use_id"] for block in sent[2]["content"]] == ["a", "b"]
+
+
+def test_openai_keeps_each_result_as_its_own_tool_message(tmp_path):
+    fake = Fake(openai_answer("done"))
+    model(tmp_path, fake, provider="openai").chat("", conversation())
+    sent = fake.seen[0]["payload"]["messages"]
+    assert [m["role"] for m in sent] == ["user", "assistant", "tool", "tool"]
+    assert sent[1]["tool_calls"][0]["function"]["arguments"] == '{"city": "Osh"}'
+    assert sent[2]["tool_call_id"] == "a" and sent[3]["tool_call_id"] == "b"
+
+
+def test_a_plain_question_still_sends_plain_string_content(tmp_path):
+    """The shape ask() produced before tools existed must not have changed underneath it."""
+    fake = Fake(anthropic_answer("hi"))
+    model(tmp_path, fake).ask("be terse", "hello")
+    assert fake.seen[0]["payload"]["messages"] == [{"role": "user", "content": "hello"}]
+
+
+def test_a_tool_using_reply_is_cached_and_replayed(tmp_path):
+    answer = (200, {"content": [{"type": "tool_use", "id": "t1", "name": "weather",
+                                 "input": {"city": "Osh"}}], "stop_reason": "tool_use"})
+    fake = Fake(answer)
+    cache = tmp_path / "cache"
+    first = model(tmp_path, fake, cache=cache).chat("", [{"role": "user", "content": "x"}])
+    second = model(tmp_path, fake, mode="replay", cache=cache).chat(
+        "", [{"role": "user", "content": "x"}])
+    assert first.tool_calls == second.tool_calls
+    assert len(fake.seen) == 1
+
+
+def test_a_different_tool_set_is_a_different_cache_slot(tmp_path):
+    fake = Fake(anthropic_answer("a"), anthropic_answer("b"))
+    cache = tmp_path / "cache"
+    message = [{"role": "user", "content": "x"}]
+    assert model(tmp_path, fake, cache=cache).chat("", message).text == "a"
+    assert model(tmp_path, fake, cache=cache).chat("", message, tools=[WEATHER]).text == "b"
