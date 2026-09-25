@@ -17,7 +17,9 @@ rm -rf $work/fresh
 run "new.sh stamps a green project"  env TARGET=$work/fresh "$H/kit/new.sh" fresh "one line"
 run "stamped project's own gate"     bash -c "cd $work/fresh && ./check.sh"
 run "publish dry run on it"          bash -c "cd $work/fresh && DRY_RUN=1 $H/kit/publish.sh"
-runfail "publish refuses a key"      bash -c "cd $work/fresh && echo 'K=\"sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAA\"' > l.py && git add l.py && DRY_RUN=1 $H/kit/publish.sh"
+# Assembled at run time rather than written out, so this file is not itself a key-shaped string.
+prefix=sk-ant
+runfail "publish refuses a key"      bash -c "cd $work/fresh && echo 'K=\"$prefix-api03-AAAAAAAAAAAAAAAAAAAAAAAAAA\"' > l.py && git add l.py && DRY_RUN=1 $H/kit/publish.sh"
 run "clean that up"                  bash -c "cd $work/fresh && git rm -q --cached l.py && rm l.py"
 run "video length report"            bash -c "$HOME/.venvs/video/bin/python $H/kit/video/render.py $H/kit/video/smoke/script.py --length-only"
 runfail "video over the limit fails" bash -c "$HOME/.venvs/video/bin/python $H/kit/video/render.py $H/kit/video/smoke/script.py --length-only --max-seconds 5"
