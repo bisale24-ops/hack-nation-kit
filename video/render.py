@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 DEFAULT_STYLE = """
  body { margin:0; width:%(W)dpx; height:%(H)dpx; background:#fbfaf7; color:#1a1a18;
@@ -130,8 +131,14 @@ def slot(build, text, voice):
     return build / ("line-%s.mp3" % stamp)
 
 
-def narrate(script, build):
-    """One mp3 per line of narration, named by what it says."""
+def narrate(script, build, attempts=5):
+    """One mp3 per line of narration, named by what it says.
+
+    The speech service fails intermittently — measured: two calls a second apart, one fine and one
+    returning nothing. Two consequences, both of which cost a video before they were handled: a
+    failed call leaves a zero-byte file behind, and a cache keyed on "the file exists" would then
+    serve silence forever. So an empty file is never a cache hit, and every line is retried.
+    """
     tts = pathlib.Path(sys.executable).parent / "edge-tts"
     if not tts.exists():
         raise SystemExit("edge-tts not next to %s — run kit/video/setup.sh, then use that "
@@ -139,9 +146,23 @@ def narrate(script, build):
     paths = []
     for _, line in script.SCENES:
         target = slot(build, line, script.VOICE)
+        if target.exists() and target.stat().st_size == 0:
+            target.unlink()                      # a failed call, not an answer
         if not target.exists():
-            subprocess.run([str(tts), "--voice", script.VOICE, "--text", line,
-                            "--write-media", str(target)], check=True)
+            for attempt in range(1, attempts + 1):
+                done = subprocess.run([str(tts), "--voice", script.VOICE, "--text", line,
+                                       "--write-media", str(target)],
+                                      capture_output=True, text=True)
+                if done.returncode == 0 and target.exists() and target.stat().st_size > 0:
+                    break
+                if target.exists():
+                    target.unlink()
+                if attempt == attempts:
+                    raise SystemExit(
+                        "the speech service would not answer after %d attempts for: %s…\n%s"
+                        % (attempts, line[:60], done.stderr.strip()[-300:]))
+                print("  speech service failed, retrying (%d/%d)" % (attempt, attempts))
+                time.sleep(2 * attempt)
         paths.append(target)
     return paths
 
