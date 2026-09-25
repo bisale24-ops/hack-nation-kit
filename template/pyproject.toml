@@ -1,0 +1,17 @@
+[project]
+name = "PKG"
+version = "0.1.0"
+description = "one line, the same one as the first line of the README"
+requires-python = ">=3.9"
+dependencies = []
+license = { file = "LICENSE" }
+
+[project.scripts]
+PKG = "PKG.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

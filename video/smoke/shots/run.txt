@@ -1,0 +1,8 @@
+CLAIMS  2 findings
+  nothing behind it  coverage 100%
+      the number is typed into the badge URL
+      README.md:3
+  ok  the licence badge matches LICENSE
+
+DOCS  0 findings
+  ok  all four examples import

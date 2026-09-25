@@ -1,0 +1,25 @@
+name: tests
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install pytest
+      - name: unit tests
+        run: PYTHONPATH=src python -m pytest tests -q
+      - name: run against this repository
+        run: PYTHONPATH=src python -m PKG --repo . --quiet
+      - name: nothing on stderr
+        run: |
+          err=$(PYTHONPATH=src python -m PKG --repo . 2>&1 >/dev/null)
+          test -z "$err" || { echo "$err"; exit 1; }
