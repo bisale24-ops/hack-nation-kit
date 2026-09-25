@@ -48,5 +48,5 @@ fi
 url="https://github.com/$owner/$project"
 echo
 echo "$url"
-echo "watch the first run finish before telling anyone about it:"
-echo "  gh run watch --repo $owner/$project"
+echo "watching the run for this commit (not the newest one, which may be the previous push):"
+exec "$(dirname "$0")/watch-ci.sh" "$owner/$project"

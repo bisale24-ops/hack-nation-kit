@@ -58,6 +58,7 @@ pace is about 2.7 words per second, so three minutes is roughly 480 words.
 | `template/check.sh` | pytest on every interpreter in the CI matrix, the tool run against itself, and an assertion that stderr stayed empty. |
 | `publish.sh` | Scans the tracked tree for credentials and key files, runs the gate, and only then creates the repository. It refuses a red tree and a planted `sk-ant-…` alike. |
 | `preflight.sh` | ffmpeg, both interpreters with pytest, chromium actually launching, `gh` signed in, disk space, reachability. |
+| `watch-ci.sh` | Waits for the run belonging to *this* commit. Watching the newest run right after a push watches the previous commit's and reports green for work it never saw. |
 | `verify.sh` | Eleven checks over all of the above — **three of which have to fail**. A gate that cannot go red proves nothing. |
 
 ## Requires
