@@ -1,0 +1,30 @@
+name: tests
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install pytest
+      - name: the renderer's own checks
+        run: python -m pytest tests -q
+      - name: a stamped project comes up green
+        run: |
+          TARGET="$RUNNER_TEMP/probe" PYTHONS=python ./new.sh probe "a probe" | tee /tmp/log
+          grep -q "all green" /tmp/log
+      - name: publish.sh refuses a tree with a credential in it
+        run: |
+          cd "$RUNNER_TEMP/probe"
+          prefix=sk-ant
+          echo "K = \"$prefix-api03-AAAAAAAAAAAAAAAAAAAAAAAAAA\"" > leak.py
+          git add leak.py
+          if DRY_RUN=1 PYTHONS=python "$GITHUB_WORKSPACE/publish.sh"; then
+            echo "publish.sh did not refuse a planted credential"; exit 1
+          fi
